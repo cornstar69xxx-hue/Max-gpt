@@ -1,58 +1,85 @@
 import os
-import threading
+import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-import google.genai as genai
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from google import genai
 
-# --- Configuration API ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# ========================
+# CONFIGURATION DU LOGGING
+# ========================
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-genai_client = genai.Client(api_key=GEMINI_API_KEY)
+# ========================
+# VARIABLES D’ENVIRONNEMENT
+# ========================
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# --- Commande /start ---
+if not TELEGRAM_TOKEN or not GOOGLE_API_KEY:
+    raise ValueError("⚠️ Erreur : Les variables TELEGRAM_TOKEN et GOOGLE_API_KEY doivent être définies sur Render.")
+
+# ========================
+# INITIALISATION DU CLIENT GEMINI
+# ========================
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+# ========================
+# COMMANDE /start
+# ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 RoastBot 9000 en ligne ! Envoie-moi un message et je te clashe 🔥")
+    await update.message.reply_text("🔥 Le bot RoastBot 9000 est en ligne ! Envoie-moi un message et je te réponds 😎")
 
-# --- Réponse automatique ---
+# ========================
+# RÉPONSE AUX MESSAGES
+# ========================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     try:
-        response = genai_client.models.generate_content(
+        response = client.models.generate_content(
             model="gemini-1.5-flash",
-            contents=f"Réponds de façon drôle, piquante et provocante : {user_message}"
+            contents=f"Roast ce message de manière drôle et sarcastique : {user_message}"
         )
-        roast = response.text.strip()
+        await update.message.reply_text(response.text)
     except Exception as e:
-        roast = f"💀 Erreur : {e}"
+        logger.error(f"Erreur Gemini: {e}")
+        await update.message.reply_text("😅 Oups, je n'arrive pas à te roast là... Réessaie !")
 
-    await update.message.reply_text(roast)
-
-# --- Fonction du serveur fake (keep-alive) ---
-class KeepAliveHandler(BaseHTTPRequestHandler):
+# ========================
+# SERVEUR WEB (pour Render)
+# ========================
+class WebServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type", "text/html")
+        self.send_header("Content-type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"<h1>Bot Telegram RoastBot 9000 est en ligne 🔥</h1>")
+        self.wfile.write("<h1>Bot Telegram RoastBot 9000 est en ligne 🔥</h1>".encode('utf-8'))
 
 def run_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), KeepAliveHandler)
-    print(f"🌐 Fake web server running on port {port}")
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("", port), WebServer)
+    logger.info(f"Serveur web lancé sur le port {port}")
     server.serve_forever()
 
-# --- Lancement principal ---
-if __name__ == "__main__":
-    # Lance le serveur web dans un thread séparé
-    threading.Thread(target=run_server, daemon=True).start()
-
-    # Lancer le bot dans le thread principal
-    print("🤖 Démarrage de RoastBot 9000...")
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+# ========================
+# LANCEMENT DU BOT
+# ========================
+async def main():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    await app.run_polling()
 
-    app.run_polling()
+# ========================
+# EXÉCUTION
+# ========================
+if __name__ == "__main__":
+    import threading
+    bot_thread = threading.Thread(target=lambda: Application.builder().token(TELEGRAM_TOKEN).build().run_polling())
+    bot_thread.daemon = True
+    bot_thread.start()
+    run_server()
