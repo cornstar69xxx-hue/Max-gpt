@@ -1,19 +1,23 @@
 import logging
+import os
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import google.genai as genai
 
 # --- CONFIGURATION ---
-TELEGRAM_TOKEN = "8447465027:AAH28UwcJ1WFSqizjWMYeJgXWLAK_7L2h6o"  # 🔹 Ton token Telegram
-GEMINI_API_KEY = "AIzaSyD8PZU4qACJd8dC6v2whfA3oqo7Q--oAmg"   # 🔹 Ta clé API Google AI Studio
-MODEL = "models/gemini-2.5-pro"            # 🔹 Le modèle utilisé sur AI Studio
+TELEGRAM_TOKEN = os.getenv("8447465027:AAH28UwcJ1WFSqizjWMYeJgXWLAK_7L2h6o")         # 🔹 Récupère ton token depuis les variables Render
+GEMINI_API_KEY = os.getenv("AIzaSyAMmn433k349GDhIR0aiaObCxbxYFdr3uI")    # 🔹 Idem pour la clé API Google
+MODEL = "models/gemini-2.5-pro"
 
 # --- Initialisation du client ---
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # --- Logs ---
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
 
 # --- Personnalité du bot ---
@@ -32,29 +36,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Gestion des messages ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-
     try:
         response = client.models.generate_content(
             model=MODEL,
-            contents=f'PERSONALITY_PROMPT\nUser: {user_message}\nRoastBot 9000:'
-
+            contents=f'{PERSONALITY_PROMPT}\nUser: {user_message}\nRoastBot 9000:'
         )
-
         roast = response.text.strip()
-
         await update.message.reply_text(roast)
     except Exception as e:
         await update.message.reply_text(f"💀 Erreur de RoastBot : {e}")
 
 # --- Lancement du bot ---
-def main():
+def run_bot():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     print("✅ RoastBot 9000 connecté à Telegram et prêt à clasher 💥")
     app.run_polling()
 
+# --- Petit serveur pour Render ---
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+    print(f"🌐 Fake web server running on port {port}")
+    server.serve_forever()
+
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_bot).start()
+    run_server()
+
+
