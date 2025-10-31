@@ -8,6 +8,7 @@ from telegram.ext import (
     filters,
 )
 from google import genai
+import asyncio
 
 # === CONFIG ===
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "TON_TELEGRAM_BOT_TOKEN")
@@ -37,12 +38,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(bot_reply)
 
 # === MAIN ===
-import asyncio
-
 async def main():
     print("🚀 Lancement du bot Telegram...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # Ajout des handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAN_
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🤖 Bot en mode polling — prêt à discuter !")
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
