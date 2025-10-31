@@ -49,5 +49,12 @@ async def main():
     print("🤖 Bot en mode polling — prêt à discuter !")
     await app.run_polling()
 
+# === LANCEMENT COMPATIBLE RENDER ===
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.get_event_loop().run_until_complete(main())
+    except RuntimeError:
+        # Si la boucle existe déjà (Render/Python 3.13), on la réutilise
+        loop = asyncio.get_event_loop()
+        loop.create_task(main())
+        loop.run_forever()
