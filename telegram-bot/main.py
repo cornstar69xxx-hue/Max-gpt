@@ -1,14 +1,14 @@
 import os
+import asyncio
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     ContextTypes,
-    filters,
+    filters
 )
 from google import genai
-import asyncio
 
 # === CONFIG ===
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "TON_TELEGRAM_BOT_TOKEN")
@@ -21,12 +21,12 @@ genai_client = genai.Client(api_key=GOOGLE_API_KEY)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Salut ! Je suis en ligne ✅\nParle-moi 😎")
 
-# === RÉPONSES AUTOMATIQUES ===
+# === GESTION DES MESSAGES ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
 
     try:
-        # Appel à Google GenAI (Gemini)
+        # Réponse du modèle Google
         response = genai_client.models.generate_content(
             model="gemini-1.5-flash",
             contents=user_message
