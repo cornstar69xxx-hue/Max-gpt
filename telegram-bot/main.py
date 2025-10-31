@@ -1,53 +1,53 @@
 import os
-from flask import Flask
+from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
-import google.generativeai as genai
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from google import genai  # ✅ Nouveau import correct
 
-# -----------------------------
-# 🔧 Configuration des clés
-# -----------------------------
-TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
-GENAI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Configuration des clés
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-if not TELEGRAM_TOKEN or not GENAI_API_KEY:
-    raise ValueError("🚨 Erreur : BOT_TOKEN ou GEMINI_API_KEY manquant dans Render !")
+app = Flask(__name__)
 
-# -----------------------------
-# 🤖 Configuration Gemini
-# -----------------------------
-genai.configure(api_key=GENAI_API_KEY)
+# ✅ Initialiser le client Google GenAI
+genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# -----------------------------
-# 🧠 Réponse du bot
-# -----------------------------
+# Fonction de démarrage du bot
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Salut ! Je suis ton bot IA 🤖. Envoie-moi un message !")
+
+# Fonction pour gérer les messages texte
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
+    user_message = update.message.text
+
     try:
-        response = model.generate_content(user_text)
-        await update.message.reply_text(response.text)
+        response = model.generate_content(user_message)
+        bot_reply = response.text or "Désolé, je n'ai pas compris 😅"
+        await update.message.reply_text(bot_reply)
     except Exception as e:
-        await update.message.reply_text("😢 Erreur interne du bot.")
-        print("Erreur Gemini :", e)
+        await update.message.reply_text(f"Erreur IA : {str(e)}")
 
-# -----------------------------
-# 🚀 Flask (pour Render)
-# -----------------------------
-app_flask = Flask(__name__)
+# Fonction webhook (Render appelle cette URL)
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "ok"
 
-@app_flask.route("/")
+# Route d’accueil
+@app.route("/", methods=["GET"])
 def home():
-    return "🤖 Bot Telegram en ligne et fonctionnel !"
+    return "✅ Bot en ligne sur Render !"
 
-# -----------------------------
-# ▶️ Lancement du bot
-# -----------------------------
-def start_bot():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("✅ Bot Telegram démarré avec succès !")
-    app.run_polling()
+# Configuration du bot Telegram
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+# Lancer le serveur Flask (Render appelle automatiquement sur le port)
 if __name__ == "__main__":
-    start_bot()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
