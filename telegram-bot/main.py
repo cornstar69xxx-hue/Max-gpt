@@ -19,9 +19,6 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 # === FONCTION POUR L’IA ===
 def generate_roast(message: str) -> str:
-    """
-    Utilise Google AI pour répondre avec un ton sarcastique et drôle.
-    """
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = (
@@ -68,4 +65,6 @@ if __name__ == "__main__":
         bot = Bot(token=BOT_TOKEN)
         bot.delete_webhook()
         bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-        print(f"🔗 Webhook défini sur : {WEBHOOK_URL}_
+        print(f"🔗 Webhook défini sur : {WEBHOOK_URL}/webhook")  # ✅ <--- ici le guillemet manquait
+
+    app.run(host="0.0.0.0", port=port)
