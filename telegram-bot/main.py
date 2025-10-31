@@ -1,67 +1,55 @@
 import os
 import asyncio
-import sys
 from flask import Flask, request
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-# ✅ CORRECT pour la lib google-genai
-import google.genai as genai 
+# Utilisation de la bonne librairie : 'google-generativeai'
+from google import generativeai as genai 
 
-# === 1. CONFIG & VÉRIFICATION DES VARIABLES D'ENVIRONNEMENT ===
-print("--- DÉBUT INITIALISATION BOT ---")
-
-# Variables cruciales pour Render
+# === CONFIG & VÉRIFICATION ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# WEBHOOK_URL est fourni par Render pour le service Web
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL")
-# Le port DOIT être lu depuis l'environnement (Render le fournit)
-PORT = int(os.environ.get("PORT", 5000)) 
+PORT = int(os.environ.get("PORT", 5000)) # Utilisation du PORT fourni par Render
 
-# Vérification rapide (ces messages apparaîtront dans les logs Render)
+# Sortie de débogage pour les logs Render
+print(f"DEBUG: BOT_TOKEN {'DÉFINI' if BOT_TOKEN else 'MANQUANT'}")
+print(f"DEBUG: GEMINI_API_KEY {'DÉFINIE' if GEMINI_API_KEY else 'MANQUANTE'}")
+print(f"DEBUG: WEBHOOK_URL: {WEBHOOK_URL}")
+
+# Vérification obligatoire des clés
 if not BOT_TOKEN:
     print("ERREUR: BOT_TOKEN n'est pas défini. Le bot ne peut pas fonctionner.")
-    sys.exit(1)
-if not GEMINI_API_KEY:
-    print("AVERTISSEMENT: GEMINI_API_KEY n'est pas défini. L'IA sera désactivée.")
-    # On permet au bot de démarrer, mais l'IA ne fonctionnera pas
-if not WEBHOOK_URL:
-    # C'est normal si vous testez en local, mais doit être défini sur Render
-    print("AVERTISSEMENT: RENDER_EXTERNAL_URL n'est pas défini. Utilisation d'un URL par défaut.")
-    WEBHOOK_URL = "http://localhost:5000"
+    exit(1)
 
+# === INITIALISATION GOOGLE GENAI ===
+try:
+    # Initialisation du client avec la nouvelle librairie
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    print("DEBUG: Client Gemini initialisé avec succès.")
+except Exception as e:
+    # Note: L'absence de GEMINI_API_KEY est gérée plus tard, mais toute autre erreur est critique ici.
+    print(f"ERREUR: Échec de l'initialisation du client Gemini: {e}")
+    client = None
 
-# === 2. INITIALISATION GOOGLE GENAI ===
-client = None
-if GEMINI_API_KEY:
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        print("✅ Client Gemini initialisé.")
-    except Exception as e:
-        print(f"ERREUR: Échec de l'initialisation du client Gemini: {e}")
-        client = None
-
-# === 3. FLASK APP ===
+# === FLASK APP ===
 app = Flask(__name__)
-print("✅ Application Flask créée.")
 
-# === 4. INITIALISATION DU BOT TELEGRAM ===
+# === INITIALISATION DU BOT TELEGRAM ===
 application = Application.builder().token(BOT_TOKEN).build()
-print("✅ Application Telegram construite.")
 
 
-# === 5. FONCTION IA SYNCHRONE (Bloquante) ===
-def _synchronous_generate_roast(message: str) -> str:
-    """
-    Fonction synchrone d'appel à l'API Gemini.
-    """
+# === FONCTION IA (Exécutée dans un thread pour l'asynchrone) ===
+def generate_roast_sync(message: str) -> str:
+    # Cette fonction est maintenant synchrone et est appelée via asyncio.to_thread
     if not client:
-        return "💀 RoastBot est hors service (Clé Gemini manquante ou invalide)."
-        
+        return "⚠️ Je suis hors service. Ma clé Gemini est manquante ou invalide. 💀"
+    
     try:
         prompt = f"""
         Tu es RoastBot 9000, un bot sarcastique et drôle.
         Réponds avec humour et un peu de piquant, sans être méchant.
+        Ton message doit être court et percutant.
         Message utilisateur : {message}
         """
 
@@ -70,87 +58,89 @@ def _synchronous_generate_roast(message: str) -> str:
             contents=prompt
         )
 
+        # La librairie 'google-generativeai' utilise 'text' pour le résultat
         return response.text.strip()
     except Exception as e:
-        # Affiche l'erreur complète dans les logs
-        print(f"ERREUR API GEMINI: {e}") 
-        return f"💀 Oups, j’ai buggé chef. (Erreur interne de l'IA)"
+        return f"💀 Oups, j’ai buggé chef (Erreur AI) : {e}"
 
 
-# === 6. HANDLERS ASYNCHRONES ===
+# === HANDLERS ASYNCHRONES ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Répond à la commande /start."""
-    print(f"Commande /start reçue de {update.effective_user.id}")
     await update.message.reply_text("🔥 Yo, ici RoastBot 9000. Envoie ton message que je te clashe 👊😎")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Gère tous les messages texte en exécutant la fonction IA dans un thread séparé."""
     user_message = update.message.text
-    print(f"Message reçu: '{user_message}'")
-
-    # Exécution de la fonction synchrone dans un thread (non-bloquant pour l'event loop)
-    roast_reply = await asyncio.to_thread(_synchronous_generate_roast, user_message)
-    
+    # Exécute l'appel Gemini (synchrone) dans un thread séparé pour ne pas bloquer le webhook
+    roast_reply = await asyncio.to_thread(generate_roast_sync, user_message)
     await update.message.reply_text(roast_reply)
-    print("Réponse envoyée.")
 
 
-# Ajout des handlers à l'Application Telegram
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-
-# === 7. ROUTE WEBHOOK FLASK ===
+# === ROUTE WEBHOOK ===
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    """Route principale recevant les updates de Telegram."""
-    if request.method == "POST":
+async def webhook():
+    # Dispatcher asynchrone pour gérer les updates du webhook
+    try:
         update = Update.de_json(request.get_json(force=True), application.bot)
-        application.update_queue.put_nowait(update)
-        # On ne log pas chaque update, car c'est trop verbeux
+        # On utilise process_update pour une gestion asynchrone des handlers
+        await application.process_update(update)
+    except Exception as e:
+        print(f"ERREUR lors du traitement du webhook: {e}")
+        # Retourne 200 OK même en cas d'erreur pour éviter les tentatives de renvoi par Telegram
     return "ok"
 
 
 @app.route("/", methods=["GET"])
 def home():
-    """Route de santé pour vérifier le statut du déploiement."""
-    return f"✅ RoastBot 9000 en ligne et en écoute sur {WEBHOOK_URL}. Port: {PORT}"
+    if not WEBHOOK_URL or not BOT_TOKEN:
+        return "❌ RoastBot 9000 : Erreur de configuration. Vérifiez BOT_TOKEN et RENDER_EXTERNAL_URL."
+    
+    status = (
+        "✅ RoastBot 9000 en ligne et en écoute sur Render !"
+        f"<br>🔗 Webhook configuré sur : <code>{WEBHOOK_URL}/{BOT_TOKEN}</code>"
+        f"<br>🤖 Statut AI: {'✅ Prêt' if client else '❌ Invalide'}"
+    )
+    return status
 
 
-# === 8. FONCTION DE SETUP ASYNCHRONE DU WEBHOOK ===
+# === FONCTION DE DÉMARRAGE ET DE CONFIGURATION DU WEBHOOK ===
 async def set_webhook_and_start_app():
-    """Configure le webhook et démarre le traitement des mises à jour."""
-    
+    # Définition du webhook au démarrage du serveur
     bot = Bot(token=BOT_TOKEN)
-    full_webhook_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
-
-    # 1. Suppression de tout ancien webhook
-    await bot.delete_webhook()
-    print("🗑️ Ancien webhook supprimé.")
     
-    # 2. Définition du nouveau webhook
-    await bot.set_webhook(url=full_webhook_url)
-    print(f"🔗 Webhook DÉFINI sur : {full_webhook_url}")
+    webhook_url_full = f"{WEBHOOK_URL}/{BOT_TOKEN}"
 
-    # 3. Démarrage de l'Application (pour gérer la file d'attente des updates)
-    application.start()
-    print("🔄 Application Telegram démarrée (prête à traiter les updates).")
-
-# === 9. MAIN EXECUTION ===
-if __name__ == "__main__":
-    # Assurez-vous que l'exécution principale ne se fait qu'une seule fois
-    print("--- DÉMARRAGE DU SERVICE ---")
-    
+    # Tente de définir le webhook
     try:
-        # Exécute la configuration asynchrone (y compris l'appel à Telegram pour le webhook)
-        asyncio.run(set_webhook_and_start_app())
-        
-        # Le serveur Flask DOIT écouter 0.0.0.0 et le PORT fourni par Render.
-        print(f"🚀 Serveur Flask prêt à servir sur 0.0.0.0:{PORT}")
-        app.run(host="0.0.0.0", port=PORT)
+        current_webhook = await bot.get_webhook_info()
+        if current_webhook.url != webhook_url_full:
+            await bot.set_webhook(url=webhook_url_full)
+            print(f"🔗 Webhook DÉFINI sur : {webhook_url_full}")
+        else:
+            print(f"🔗 Webhook est DÉJÀ configuré correctement : {webhook_url_full}")
     except Exception as e:
-        print(f"FATAL: Erreur de lancement du serveur ou de l'application: {e}")
-        # Arrête l'application Telegram en cas d'erreur
-        application.stop()
-        sys.exit(1)
+        print(f"ERREUR FATALE: Échec de la configuration du webhook: {e}")
+        # Ne pas quitter si le webhook échoue, le serveur doit quand même démarrer
+    
+    # Ajout des handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Lance les processus de mise à jour asynchrones (nécessaire même en mode webhook)
+    await application.initialize()
+    await application.start()
+    
+    # Renvoie l'objet Flask app pour que Gunicorn puisse le lancer
+    return app
+
+
+# === MAIN ENTRY POINT ===
+if __name__ == '__main__':
+    # Cette section est ignorée par Gunicorn/Render et sert uniquement au test local.
+    if not BOT_TOKEN or not WEBHOOK_URL:
+        print("Veuillez définir BOT_TOKEN et RENDER_EXTERNAL_URL (ou l'utiliser via Gunicorn sur Render).")
+    else:
+        # Configuration du webhook et démarrage de l'application Flask
+        asyncio.run(set_webhook_and_start_app())
+        # Dans un environnement de production (Render), ceci est remplacé par Gunicorn
+        app.run(host="0.0.0.0", port=PORT)
