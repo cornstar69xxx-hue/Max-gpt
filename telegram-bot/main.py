@@ -1,60 +1,72 @@
 import os
-import asyncio
+import logging
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
-)
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from google import genai
+from google.genai import types
+from flask import Flask
 
-# === CONFIG ===
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "TON_TELEGRAM_BOT_TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "TA_CLE_GOOGLE_GENAI")
+# --- Configuration logging ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialisation du client Google GenAI
-genai_client = genai.Client(api_key=GOOGLE_API_KEY)
+# --- Clés d'API ---
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GENAI_API_KEY = os.getenv("GENAI_API_KEY")
 
-# === COMMANDES ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Salut ! Je suis en ligne ✅\nParle-moi 😎")
+# --- Google Generative AI client ---
+genai_client = genai.Client(api_key=GENAI_API_KEY)
 
-# === GESTION DES MESSAGES ===
+# --- Flask app pour Render keep-alive ---
+app_web = Flask(__name__)
+
+@app_web.route("/")
+def home():
+    return "✅ Bot Telegram fonctionne sur Render !"
+
+# --- Handler pour les messages Telegram ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
+    logger.info(f"Message reçu : {user_message}")
 
     try:
-        # Réponse du modèle Google
         response = genai_client.models.generate_content(
             model="gemini-1.5-flash",
-            contents=user_message
+            contents=user_message,
         )
-        bot_reply = response.text.strip()
+        reply_text = response.text or "🤖 Aucune réponse générée."
     except Exception as e:
-        bot_reply = f"❌ Erreur : {e}"
+        logger.error(f"Erreur GenAI : {e}")
+        reply_text = "⚠️ Erreur avec l’IA, réessaie plus tard."
 
-    await update.message.reply_text(bot_reply)
+    await update.message.reply_text(reply_text)
 
-# === MAIN ===
-async def main():
-    print("🚀 Lancement du bot Telegram...")
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+# --- Fonction principale ---
+def main():
+    logger.info("🚀 Lancement du bot Telegram...")
 
-    # Ajout des handlers
-    app.add_handler(CommandHandler("start", start))
+    # Lancement du bot Telegram
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_TOKEN)
+        .build()
+    )
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🤖 Bot en mode polling — prêt à discuter !")
-    await app.run_polling()
+    # Lancement du serveur Flask sur Render (port défini par Render)
+    port = int(os.environ.get("PORT", 8080))
 
-# === LANCEMENT COMPATIBLE RENDER ===
+    # On démarre le bot et Flask dans des threads séparés
+    import threading
+
+    threading.Thread(target=lambda: app.run_polling(allowed_updates=Update.ALL_TYPES), daemon=True).start()
+
+    logger.info("🤖 Bot en mode polling — prêt à discuter !")
+
+    # Flask bloque le thread principal (keep-alive Render)
+    app_web.run(host="0.0.0.0", port=port)
+
+# --- Exécution ---
 if __name__ == "__main__":
-    try:
-        asyncio.get_event_loop().run_until_complete(main())
-    except RuntimeError:
-        # Si la boucle existe déjà (Render/Python 3.13), on la réutilise
-        loop = asyncio.get_event_loop()
-        loop.create_task(main())
-        loop.run_forever()
+    main()
