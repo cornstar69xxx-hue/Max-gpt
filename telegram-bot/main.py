@@ -1,85 +1,74 @@
-import os
 import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import os
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from google import genai
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import google.genai as genai
 
-# ========================
-# CONFIGURATION DU LOGGING
-# ========================
+# --- CONFIGURATION ---
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# 🔍 Vérifie si les clés existent
+if not BOT_TOKEN or not GEMINI_API_KEY:
+    print("❌ Erreur : Variables d’environnement manquantes.")
+    print("DEBUG BOT_TOKEN:", BOT_TOKEN)
+    print("DEBUG GEMINI_API_KEY:", GEMINI_API_KEY)
+    raise ValueError("Les variables BOT_TOKEN et GEMINI_API_KEY doivent être définies dans Render.")
+
+MODEL = "models/gemini-2.5-pro"
+
+# --- Initialisation du client ---
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+# --- Logs ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
-# ========================
-# VARIABLES D’ENVIRONNEMENT
-# ========================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# --- Personnalité du bot ---
+PERSONALITY_PROMPT = """
+You are RoastBot 9000 — a sarcastic, rude, but funny chatbot.
+Your mission: roast people, tease them, and deliver hilarious insults — but never cross into hate speech or real offense.
+Your tone is confident, sharp, and self-aware, like a stand-up comedian who loves roasting the user.
+Keep it short, punchy, and witty.
+Respond in the same language the user uses.
+"""
 
-if not TELEGRAM_TOKEN or not GOOGLE_API_KEY:
-    raise ValueError("⚠️ Erreur : Les variables TELEGRAM_TOKEN et GOOGLE_API_KEY doivent être définies sur Render.")
-
-# ========================
-# INITIALISATION DU CLIENT GEMINI
-# ========================
-client = genai.Client(api_key=GOOGLE_API_KEY)
-
-# ========================
-# COMMANDE /start
-# ========================
+# --- Commande /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 Le bot RoastBot 9000 est en ligne ! Envoie-moi un message et je te réponds 😎")
+    await update.message.reply_text("🔥 RoastBot 9000 en ligne. Viens te faire griller 😈")
 
-# ========================
-# RÉPONSE AUX MESSAGES
-# ========================
+# --- Gestion des messages ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=f"Roast ce message de manière drôle et sarcastique : {user_message}"
+            model=MODEL,
+            contents=f'{PERSONALITY_PROMPT}\nUser: {user_message}\nRoastBot 9000:'
         )
-        await update.message.reply_text(response.text)
+        roast = response.text.strip()
+        await update.message.reply_text(roast)
     except Exception as e:
-        logger.error(f"Erreur Gemini: {e}")
-        await update.message.reply_text("😅 Oups, je n'arrive pas à te roast là... Réessaie !")
+        await update.message.reply_text(f"💀 Erreur de RoastBot : {e}")
 
-# ========================
-# SERVEUR WEB (pour Render)
-# ========================
-class WebServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write("<h1>Bot Telegram RoastBot 9000 est en ligne 🔥</h1>".encode('utf-8'))
-
-def run_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("", port), WebServer)
-    logger.info(f"Serveur web lancé sur le port {port}")
-    server.serve_forever()
-
-# ========================
-# LANCEMENT DU BOT
-# ========================
-async def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+# --- Lancement du bot ---
+def run_bot():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    await app.run_polling()
+    print("✅ RoastBot 9000 connecté à Telegram et prêt à clasher 💥")
+    app.run_polling()
 
-# ========================
-# EXÉCUTION
-# ========================
+# --- Petit serveur pour Render ---
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+    print(f"🌐 Fake web server running on port {port}")
+    server.serve_forever()
+
 if __name__ == "__main__":
-    import threading
-    bot_thread = threading.Thread(target=lambda: Application.builder().token(TELEGRAM_TOKEN).build().run_polling())
-    bot_thread.daemon = True
-    bot_thread.start()
+    threading.Thread(target=run_bot).start()
     run_server()
