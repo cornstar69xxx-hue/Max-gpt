@@ -7,9 +7,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import google.genai as genai
 
 # --- CONFIGURATION ---
-TELEGRAM_TOKEN = os.getenv("8447465027:AAH28UwcJ1WFSqizjWMYeJgXWLAK_7L2h6o")         # 🔹 Récupère ton token depuis les variables Render
-GEMINI_API_KEY = os.getenv("AIzaSyAMmn433k349GDhIR0aiaObCxbxYFdr3uI")    # 🔹 Idem pour la clé API Google
-MODEL = "models/gemini-2.5-pro"
+TELEGRAM_TOKEN = "8447465027:AAH28UwcJ1WFSqizjWMYeJgXWLAK_7L2h6o"  # 🔹 Ton token Telegram
+GEMINI_API_KEY = "AIzaSyAMmn433k349GDhIR0aiaObCxbxYFdr3uI"   # 🔹 Ta clé API Google AI Studio
+MODEL = "models/gemini-2.5-pro"            # 🔹 Le modèle utilisé sur AI Studio
 
 # --- Initialisation du client ---
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -64,5 +64,6 @@ def run_server():
 if __name__ == "__main__":
     threading.Thread(target=run_bot).start()
     run_server()
+
 
 
