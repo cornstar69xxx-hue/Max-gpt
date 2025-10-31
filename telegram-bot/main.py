@@ -1,25 +1,27 @@
 import logging
 import os
-import asyncio
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import google.genai as genai
+import asyncio
 
 # --- CONFIGURATION ---
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MODEL = "models/gemini-2.0-pro"
 
-if not BOT_TOKEN or not GEMINI_API_KEY:
-    print("❌ Erreur : variables d’environnement manquantes.")
-    print("BOT_TOKEN:", BOT_TOKEN)
-    print("GEMINI_API_KEY:", GEMINI_API_KEY)
-    raise ValueError("Les variables BOT_TOKEN et GEMINI_API_KEY doivent être définies dans Render.")
+if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
+    print("❌ ERREUR: Variables d'environnement manquantes (BOT_TOKEN ou GEMINI_API_KEY)")
+    exit(1)
 
-MODEL = "models/gemini-2.5-pro"
+print(f"✅ BOT_TOKEN chargé: {TELEGRAM_TOKEN[:10]}...")
+print(f"✅ GEMINI_API_KEY chargé: {GEMINI_API_KEY[:6]}...")
+
+# --- Initialisation du client ---
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- LOGGING ---
+# --- Logs ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -44,30 +46,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         response = client.models.generate_content(
             model=MODEL,
-            contents=f"{PERSONALITY_PROMPT}\nUser: {user_message}\nRoastBot 9000:"
+            contents=f'{PERSONALITY_PROMPT}\nUser: {user_message}\nRoastBot 9000:'
         )
         roast = response.text.strip()
         await update.message.reply_text(roast)
     except Exception as e:
         await update.message.reply_text(f"💀 Erreur de RoastBot : {e}")
 
-# --- Serveur Render ---
-def start_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
-    print(f"🌐 Fake web server running on port {port}")
-    server.serve_forever()
-
-# --- Lancement global ---
+# --- Lancement global (bot + mini serveur pour Render) ---
 async def main():
-    # Démarre le serveur HTTP dans un thread de fond
-    asyncio.create_task(asyncio.to_thread(start_server))
-
-    # Configure et démarre le bot Telegram
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Mini serveur pour Render
+    async def run_server():
+        port = int(os.environ.get("PORT", 10000))
+        server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+        print(f"🌐 Fake web server running on port {port}")
+        server.serve_forever()
+
+    # Lance bot + serveur en parallèle
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_server())
     print("✅ RoastBot 9000 connecté à Telegram et prêt à clasher 💥")
     await app.run_polling()
 
