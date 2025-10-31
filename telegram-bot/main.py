@@ -7,11 +7,18 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import google.genai as genai
 
 # --- CONFIGURATION ---
-TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")           # 🔹 lit la variable Render
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")      # 🔹 lit la variable Render
+TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")           # 🔹 Lit ton token depuis Render
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")      # 🔹 Lit ta clé API depuis Render
 MODEL = "models/gemini-2.5-pro"
 
+# --- Vérification des variables ---
+print("🔧 BOT_TOKEN lu:", TELEGRAM_TOKEN[:10] if TELEGRAM_TOKEN else "❌ None")
+print("🔧 GEMINI_API_KEY lu:", GEMINI_API_KEY[:10] if GEMINI_API_KEY else "❌ None")
+
 # --- Initialisation du client ---
+if not GEMINI_API_KEY:
+    raise ValueError("❌ Erreur : GEMINI_API_KEY manquant. Configure-le dans les variables Render.")
+
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # --- Logs ---
@@ -48,6 +55,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Lancement du bot ---
 def run_bot():
+    if not TELEGRAM_TOKEN:
+        raise ValueError("❌ Erreur : BOT_TOKEN manquant. Configure-le dans les variables Render.")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -61,6 +70,9 @@ def run_server():
     print(f"🌐 Fake web server running on port {port}")
     server.serve_forever()
 
+# --- Exécution ---
 if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
+    t = threading.Thread(target=run_bot)
+    t.daemon = True  # 🔹 essentiel pour Render
+    t.start()
     run_server()
