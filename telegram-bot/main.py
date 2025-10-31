@@ -1,68 +1,71 @@
 import os
 from flask import Flask, request
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import google.genai as genai
 
-# === CONFIGURATION ===
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
+# === CONFIG ===
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL")
 
-# Vérification
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN manquant dans les variables d'environnement.")
-if not GOOGLE_API_KEY:
-    raise ValueError("❌ GOOGLE_API_KEY manquant dans les variables d'environnement.")
+genai.configure(api_key=GOOGLE_API_KEY)
 
-# === INITIALISATION ===
+# === FLASK APP ===
 app = Flask(__name__)
 
-# Configuration Google AI
-genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-# === HANDLERS TELEGRAM ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Salut ! Je suis ton bot connecté à Google AI Studio !")
-
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    try:
-        response = model.generate_content(user_text)
-        await update.message.reply_text(response.text or "🤖 Je n’ai pas pu générer de réponse.")
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Erreur : {str(e)}")
-
-# === APPLICATION TELEGRAM ===
+# === INITIALISATION DU BOT ===
 application = Application.builder().token(BOT_TOKEN).build()
+
+# === FONCTION POUR L’IA ===
+def generate_roast(message: str) -> str:
+    """
+    Utilise Google AI pour répondre avec un ton sarcastique et drôle.
+    """
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        prompt = (
+            f"Tu es RoastBot 9000, un bot sarcastique et drôle. "
+            f"Réponds de manière amusante, un peu provocante mais jamais méchante. "
+            f"Message utilisateur : {message}"
+        )
+        response = model.generate_content(prompt)
+        return response.text or "😏 Même moi je sais pas quoi te dire, c’est grave."
+    except Exception as e:
+        return f"💀 Oups, j’ai bugé chef : {e}"
+
+# === HANDLERS ===
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🤖 Yo, ici RoastBot 9000. Balance ton message que je te clashe en beauté 💬🔥")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    print(f"[MESSAGE] {user_message}")
+    roast_response = generate_roast(user_message)
+    await update.message.reply_text(roast_response)
+
+# === AJOUT DES HANDLERS ===
 application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# === FLASK SERVER POUR RENDER ===
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ Bot en ligne sur Render !"
-
+# === ROUTE FLASK POUR LE WEBHOOK ===
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.method == "POST":
-        data = request.get_json(force=True)
-        update = Update.de_json(data, application.bot)
-        application.update_queue.put(update)
-        return "ok", 200
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "ok", 200
 
-# === LANCEMENT LOCAL / RENDER ===
+@app.route("/")
+def home():
+    return "🔥 RoastBot 9000 est en ligne et prêt à clasher !"
+
+# === LANCEMENT SERVEUR + WEBHOOK ===
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     print(f"🚀 Serveur Flask en ligne sur le port {port}")
 
-    # Si URL Render disponible → configure webhook
     if WEBHOOK_URL:
-        from telegram import Bot
         bot = Bot(token=BOT_TOKEN)
         bot.delete_webhook()
         bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-        print(f"🔗 Webhook défini sur : {WEBHOOK_URL}/webhook")
-
-    app.run(host="0.0.0.0", port=port)
+        print(f"🔗 Webhook défini sur : {WEBHOOK_URL}_
