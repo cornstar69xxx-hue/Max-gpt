@@ -9,6 +9,9 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL")
 
+# --- INITIALISATION GEMINI ---
+genai.configure(api_key=GOOGLE_API_KEY)
+
 # ✅ Nouvelle méthode correcte pour initialiser Google AI
 genai.configure(api_key=GOOGLE_API_KEY)
 
@@ -69,3 +72,4 @@ if __name__ == "__main__":
         print(f"🔗 Webhook défini sur : {WEBHOOK_URL}/webhook")
 
     app.run(host="0.0.0.0", port=port)
+
